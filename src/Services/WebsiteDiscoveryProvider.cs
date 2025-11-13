@@ -162,7 +162,7 @@ public class WebsiteDiscoveryProvider(
     {
         var b = new ContentItemQueryBuilder()
             .ForContentTypes(c => c
-                .OfReusableSchema(options.ReusableSchemaName)
+                .OfContentType(options.ContentTypeDependencies)
                 .ForWebsite(website.WebsiteChannelName))
             .InLanguage(options.DefaultLanguage);
 
