@@ -29,7 +29,7 @@ using XperienceCommunity.SEO;
 var builder = WebApplication.CreateBuilder(args);
 
 // Register the SEO services with configuration
-builder.Services.AddXperienceCommunitySEO(options =>
+builder.Services.AddWebsiteDiscoveryProvider(options =>
 {
     options.ReusableSchemaName = "PageMetadata"; // Your reusable schema name
     options.DefaultLanguage = "en-US";
@@ -38,7 +38,7 @@ builder.Services.AddXperienceCommunitySEO(options =>
     options.SitemapShowFieldName = "ShowInSitemap"; // Optional field
     options.ContentTypeDependencies = new[] 
     { 
-        "BlogPost", 
+        "BlogPost", // or BlogPost.CONTENT_TYPE_NAME
         "Article", 
         "LandingPage" 
     };
