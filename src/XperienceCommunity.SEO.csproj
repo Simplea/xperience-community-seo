@@ -1,5 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
 		<AdminOrgName>xperiencecommunity</AdminOrgName>
 		<RootNamespace>XperienceCommunity.SEO</RootNamespace>
 		<NoWarn>$(NoWarn);S1075</NoWarn>
@@ -16,6 +17,7 @@
 	<ItemGroup>
 		<PackageReference Include="Kentico.Xperience.WebApp" />
 		<PackageReference Include="Kentico.Xperience.Admin" />
+		<PackageReference Include="ReverseMarkdown" />
 		<PackageReference Include="SimpleMvcSitemap.Core" />
 	</ItemGroup>
 </Project>
