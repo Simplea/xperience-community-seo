@@ -8,6 +8,7 @@ A centralized repository dedicated to essential SEO infrastructure files like ro
 - **Dynamic Content Discovery**: Automatically discover and include content items based on your configuration
 - **Cache Optimization**: Built-in caching using Kentico's cache dependency system
 - **Flexible Configuration**: Configure which content types, fields, and languages to include
+- **Markdown Content Negotiation**: Serve Markdown renditions of HTML pages for agents and LLM crawlers via `Accept: text/markdown`
 
 ## Quick Start
 
@@ -45,6 +46,9 @@ builder.Services.AddWebsiteDiscoveryProvider(options =>
 });
 
 var app = builder.Build();
+
+// Enable Markdown content negotiation (place before UseRouting/MapControllers)
+app.UseMarkdownContentNegotiation();
 
 // Your middleware configuration...
 app.MapControllers();
@@ -301,6 +305,82 @@ public class CustomSEOController : ControllerBase
 - `Title` - The page title from your configured title field
 - `Description` - The page description from your configured description field
 - `IsInSitemap` - Whether the page should be included in sitemaps
+
+## Markdown Content Negotiation
+
+When `UseMarkdownContentNegotiation()` is registered, any request that sends `Accept: text/markdown` receives a Markdown rendition of the HTML page instead of the default HTML response. HTML → Markdown conversion is powered by [ReverseMarkdown](https://github.com/mysticmind/reversemarkdown-net), preserving headings, links, lists, images, and tables.
+
+- Response `Content-Type` is set to `text/markdown; charset=utf-8`
+- An `x-markdown-tokens` response header contains an estimated token count
+- Non-HTML responses (XML, JSON, etc.) are passed through unchanged
+- Relative URLs (`/path`, `~/path`) in `src` and `href` attributes are rewritten to absolute URLs using the current request's scheme and host
+
+### Options
+
+`UseMarkdownContentNegotiation` accepts an optional callback to configure `MarkdownNegotiationOptions`:
+
+```csharp
+app.UseMarkdownContentNegotiation(opts =>
+{
+    opts.SkippedPaths  = ["/api/*", "/health"];
+    opts.StripElements = ["header", "nav", "footer", "script", "style", "noscript"];
+    opts.StripClasses  = ["page-spinner"];
+});
+```
+
+#### `SkippedPaths`
+
+Paths that should **never** receive Markdown negotiation, even when `Accept: text/markdown` is sent. All other paths are eligible by default.
+
+| Pattern | Behavior |
+|---|---|
+| `/health` | Exact match only |
+| `/api/*` | Matches `/api/` and any path beneath it |
+
+When the array is **empty** (the default), no paths are skipped.
+
+#### `StripElements`
+
+HTML tag names to remove from the page before conversion. Use this to strip layout chrome (navigation, headers, footers, scripts) so agents receive only meaningful page content.
+
+Defaults: `header`, `nav`, `footer`, `script`, `style`, `noscript`
+
+Set to an empty array to disable tag-based stripping entirely:
+
+```csharp
+app.UseMarkdownContentNegotiation(opts =>
+{
+    opts.StripElements = [];
+});
+```
+
+#### `StripClasses`
+
+CSS class names whose elements should be removed before conversion. Any element that carries one of these classes is removed entirely, regardless of its tag name. Useful for removing decorative wrappers, loading spinners, or empty layout containers that produce noise in the Markdown output.
+
+Defaults: `[]` (disabled)
+
+```csharp
+app.UseMarkdownContentNegotiation(opts =>
+{
+    opts.StripClasses = ["page-spinner"];
+});
+```
+
+### Testing
+
+```bash
+# Default HTML response
+curl https://localhost:5001/about-us
+
+# Markdown negotiation
+curl -H "Accept: text/markdown" https://localhost:5001/about-us
+
+# Inspect response headers
+curl -I -H "Accept: text/markdown" https://localhost:5001/about-us
+# Content-Type: text/markdown; charset=utf-8
+# x-markdown-tokens: <number>
+```
 
 ## Testing
 
