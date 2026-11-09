@@ -16,17 +16,25 @@ public class MarkdownNegotiationMiddleware(RequestDelegate next, MarkdownNegotia
 
     public async Task InvokeAsync(HttpContext context)
     {
+        if (IsPathSkipped(context.Request.Path))
+        {
+            await next(context);
+            return;
+        }
+
+        // The same URL answers with HTML or Markdown, so shared caches must keep them apart
+        context.Response.OnStarting(AddVaryHeader, context);
+
         var acceptHeader = context.Request.Headers.Accept.ToString();
 
-        if (!acceptHeader.Contains("text/markdown", StringComparison.OrdinalIgnoreCase)
-            || IsPathSkipped(context.Request.Path))
+        if (!acceptHeader.Contains("text/markdown", StringComparison.OrdinalIgnoreCase))
         {
             await next(context);
             return;
         }
 
         var originalBody = context.Response.Body;
-        using var capture = new MarkdownBodyCapture(originalBody);
+        using var capture = new MarkdownBodyCapture(context.Response, originalBody);
         context.Response.Body = capture;
 
         try
@@ -38,11 +46,8 @@ public class MarkdownNegotiationMiddleware(RequestDelegate next, MarkdownNegotia
             context.Response.Body = originalBody;
         }
 
-        var contentType = context.Response.ContentType ?? string.Empty;
-        if (!contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+        if (!capture.IsHtml)
         {
-            var capturedBytes = Encoding.UTF8.GetBytes(capture.GetCapturedText());
-            await originalBody.WriteAsync(capturedBytes);
             return;
         }
 
@@ -56,6 +61,20 @@ public class MarkdownNegotiationMiddleware(RequestDelegate next, MarkdownNegotia
         context.Response.ContentLength = markdownBytes.Length;
 
         await originalBody.WriteAsync(markdownBytes);
+    }
+
+    private static Task AddVaryHeader(object state)
+    {
+        var response = ((HttpContext)state).Response;
+        var contentType = response.ContentType ?? string.Empty;
+
+        if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+            || contentType.Contains("text/markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            response.Headers.Append("Vary", "Accept");
+        }
+
+        return Task.CompletedTask;
     }
 
     private bool IsPathSkipped(PathString requestPath)

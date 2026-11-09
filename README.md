@@ -37,6 +37,9 @@ builder.Services.AddWebsiteDiscoveryProvider(options =>
     options.DescriptionFieldName = "MetaDescription";
     options.TitleFieldName = "MetaTitle";
     options.SitemapShowFieldName = "ShowInSitemap"; // Optional field
+    options.SitemapPriorityFieldName = "SitemapPriority"; // Optional field, a value from 0.0 to 1.0
+    options.SitemapFrequencyFieldName = "SitemapFrequency"; // Optional field, e.g. "daily" or "monthly"
+    options.LlmsTxtTitles["MyWebsiteChannel"] = "My Website"; // Optional llms.txt heading per website channel
     options.ContentTypeDependencies = new[] 
     { 
         "BlogPost", // or BlogPost.CONTENT_TYPE_NAME
@@ -55,6 +58,15 @@ app.MapControllers();
 
 app.Run();
 ```
+
+### How pages are listed
+
+- **Per website channel.** The sitemap and llms.txt list the pages of the channel that serves the request, so one application can host several sites. Results are cached per channel and language.
+- **Refreshed on publish.** The cache depends on the configured content types in the channel, so publishing or unpublishing a page updates the output straight away. Otherwise it expires after 60 minutes.
+- **Canonical URLs.** Each page is listed at its canonical URL, from `IWebPageUrlRetriever`: the site root for the home page, and the vanity URL when one is selected as canonical.
+- **Last modified.** `lastmod` is the date the page was last published, with the server's time zone offset.
+- **Priority and change frequency** come from the optional `SitemapPriorityFieldName` and `SitemapFrequencyFieldName` fields. Without a priority, none is listed; without a frequency, `weekly` is listed.
+- **llms.txt titles.** A page without a title uses the name editors give it in the content tree. The heading is the channel's entry in `LlmsTxtTitles`, or the channel name.
 
 ## Usage Examples
 
@@ -95,7 +107,7 @@ public class SEOController : ControllerBase
     [ResponseCache(Duration = 86400)] // Cache for 24 hours
     public ActionResult GetRobotsTxt()
     {
-        return _websiteDiscoveryProvider.GenerateRobotsTxt();
+        return Content(_websiteDiscoveryProvider.GenerateRobotsTxt(), "text/plain; charset=utf-8");
     }
 }
 ```
@@ -151,7 +163,7 @@ public class SEOController : ControllerBase
 
     [HttpGet("~/robots.txt")] // ~/ makes it root-relative
     public ActionResult RobotsTxt() 
-        => _provider.GenerateRobotsTxt();
+        => Content(_provider.GenerateRobotsTxt(), "text/plain; charset=utf-8");
 }
 ```
 
@@ -202,14 +214,16 @@ Allow: /
 <?xml version="1.0" encoding="utf-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://yoursite.com/about</loc>
-    <lastmod>2025-10-03</lastmod>
-    <changefreq>weekly</changefreq>
+    <loc>https://yoursite.com/</loc>
+    <lastmod>2025-10-03T14:20:11.5300000-05:00</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://yoursite.com/blog/article</loc>
-    <lastmod>2025-10-03</lastmod>
+    <loc>https://yoursite.com/about</loc>
+    <lastmod>2025-09-18T09:02:47.1200000-05:00</lastmod>
     <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
   </url>
 </urlset>
 ```
@@ -259,12 +273,12 @@ public class CustomSEOController : ControllerBase
             if (node.Url.Contains("/blog/"))
             {
                 node.ChangeFrequency = ChangeFrequency.Daily;
-                node.Priority = 0.8;
+                node.Priority = 0.8m;
             }
             else if (node.Url.Contains("/news/"))
             {
                 node.ChangeFrequency = ChangeFrequency.Hourly;
-                node.Priority = 0.9;
+                node.Priority = 0.9m;
             }
         }
 
@@ -281,10 +295,10 @@ public class CustomSEOController : ControllerBase
         // Transform or filter the data as needed
         var customData = pagesWithDetails.Select(page => new
         {
-            Url = page.SystemFields.WebPageUrlPath,
+            Url = page.Url,
             Title = page.Title,
             Description = page.Description,
-            LastModified = DateTime.Now
+            LastModified = page.LastModified
         });
 
         return Ok(customData);
@@ -305,6 +319,11 @@ public class CustomSEOController : ControllerBase
 - `Title` - The page title from your configured title field
 - `Description` - The page description from your configured description field
 - `IsInSitemap` - Whether the page should be included in sitemaps
+- `Url` - The page's canonical URL, relative to the site root (`/` for the home page)
+- `DisplayName` - The name editors give the page in the content tree
+- `LastModified` - When the page was last published
+- `Priority` - The value of the configured priority field, if any
+- `ChangeFrequency` - The value of the configured change frequency field, if any
 
 ## Markdown Content Negotiation
 
@@ -312,7 +331,8 @@ When `UseMarkdownContentNegotiation()` is registered, any request that sends `Ac
 
 - Response `Content-Type` is set to `text/markdown; charset=utf-8`
 - An `x-markdown-tokens` response header contains an estimated token count
-- Non-HTML responses (XML, JSON, etc.) are passed through unchanged
+- Non-HTML responses (XML, JSON, images, PDFs, etc.) are streamed through unchanged, without buffering
+- HTML and Markdown responses carry `Vary: Accept`, so shared caches keep the two renditions apart
 - Relative URLs (`/path`, `~/path`) in `src` and `href` attributes are rewritten to absolute URLs using the current request's scheme and host
 
 ### Options

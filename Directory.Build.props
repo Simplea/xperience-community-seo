@@ -2,11 +2,11 @@
 
   <PropertyGroup>
     <Authors>Victor Hugo Garcia Hernandez</Authors>
-    <VersionPrefix>1.1.1</VersionPrefix>
+    <VersionPrefix>1.2.0</VersionPrefix>
     <VersionSuffix></VersionSuffix>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/vhugogarcia/xperience-community-seo</PackageProjectUrl>
-    <PackageReleaseNotes>https://github.com/vhugogarcia/xperience-community-seo</PackageReleaseNotes>
+    <PackageProjectUrl>https://github.com/Simplea/xperience-community-seo</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/Simplea/xperience-community-seo</PackageReleaseNotes>
     <PackageIcon>logo.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>kentico;xperience;seo;ai;llms;sitemap;robotstxt</PackageTags>

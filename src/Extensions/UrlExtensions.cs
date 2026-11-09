@@ -8,5 +8,5 @@ public static class UrlExtensions
         $"{currentRequest.Scheme}://{currentRequest.Host}{currentRequest.PathBase}{pageUrl.RelativePathTrimmed()}";
 
     public static string AbsoluteURL(this string relativeUrl, HttpRequest currentRequest) =>
-        $"{currentRequest.Scheme}://{currentRequest.Host}{currentRequest.PathBase}/{relativeUrl.TrimStart('~')}";
+        $"{currentRequest.Scheme}://{currentRequest.Host}{currentRequest.PathBase}/{relativeUrl.TrimStart('~').TrimStart('/')}";
 }
