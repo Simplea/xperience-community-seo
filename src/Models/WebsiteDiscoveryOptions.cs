@@ -11,4 +11,7 @@ public class WebsiteDiscoveryOptions : IWebsiteDiscoveryOptions
     public string DescriptionFieldName { get; set; } = string.Empty;
     public string TitleFieldName { get; set; } = string.Empty;
     public string[] ContentTypeDependencies { get; set; } = [];
+    public string SitemapPriorityFieldName { get; set; } = string.Empty;
+    public string SitemapFrequencyFieldName { get; set; } = string.Empty;
+    public IDictionary<string, string> LlmsTxtTitles { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

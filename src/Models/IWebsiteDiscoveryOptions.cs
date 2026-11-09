@@ -34,4 +34,19 @@ public interface IWebsiteDiscoveryOptions
     /// Content type names to include in sitemap
     /// </summary>
     public string[] ContentTypeDependencies { get; }
+
+    /// <summary>
+    /// Field name for the sitemap priority, a value from 0.0 to 1.0 (optional - if empty, no priority is listed)
+    /// </summary>
+    public string SitemapPriorityFieldName { get; }
+
+    /// <summary>
+    /// Field name for the sitemap change frequency (optional - if empty, or the page has no value, "weekly" is listed)
+    /// </summary>
+    public string SitemapFrequencyFieldName { get; }
+
+    /// <summary>
+    /// The llms.txt heading per website channel name (optional - a channel without an entry uses the channel name)
+    /// </summary>
+    public IDictionary<string, string> LlmsTxtTitles { get; }
 }

@@ -1,4 +1,7 @@
-﻿using ActionResult = Microsoft.AspNetCore.Mvc.ActionResult;
+﻿using System.Globalization;
+using CMS.ContentEngine.Internal;
+using CMS.DataEngine;
+using ActionResult = Microsoft.AspNetCore.Mvc.ActionResult;
 
 namespace XperienceCommunity.SEO.Services;
 
@@ -6,6 +9,8 @@ public class WebsiteDiscoveryProvider(
     IProgressiveCache cache,
     IWebsiteChannelContext website,
     IContentQueryExecutor executor,
+    IWebPageUrlRetriever urlRetriever,
+    IInfoProvider<ContentItemLanguageMetadataInfo> languageMetadataProvider,
     IWebsiteDiscoveryOptions options,
     IHttpContextAccessor httpContextAccessor,
     IConfiguration configuration) : IWebsiteDiscoveryProvider
@@ -13,6 +18,8 @@ public class WebsiteDiscoveryProvider(
     private readonly IProgressiveCache cache = cache;
     private readonly IWebsiteChannelContext website = website;
     private readonly IContentQueryExecutor executor = executor;
+    private readonly IWebPageUrlRetriever urlRetriever = urlRetriever;
+    private readonly IInfoProvider<ContentItemLanguageMetadataInfo> languageMetadataProvider = languageMetadataProvider;
     private readonly IWebsiteDiscoveryOptions options = ValidateOptions(options);
     private readonly IHttpContextAccessor httpContextAccessor = httpContextAccessor;
     private readonly IConfiguration configuration = configuration;
@@ -37,16 +44,15 @@ public class WebsiteDiscoveryProvider(
         var sb = new StringBuilder();
         var currentRequest = httpContextAccessor.HttpContext?.Request;
 
-        sb.AppendLine($"# {website.WebsiteChannelName}");
+        sb.AppendLine($"# {GetLlmsTxtTitle()}");
         sb.AppendLine();
         sb.AppendLine("## Pages");
         sb.AppendLine();
 
         foreach (var page in pages)
         {
-            string title = !string.IsNullOrWhiteSpace(page.Title) ? page.Title : page.SystemFields.WebPageItemName;
-            string relativeUrl = page.SystemFields.WebPageUrlPath;
-            string url = currentRequest != null ? relativeUrl.AbsoluteURL(currentRequest) : relativeUrl;
+            string title = !string.IsNullOrWhiteSpace(page.Title) ? page.Title : page.DisplayName;
+            string url = currentRequest != null ? page.Url.AbsoluteURL(currentRequest) : page.Url;
 
             if (!string.IsNullOrWhiteSpace(page.Description))
             {
@@ -84,7 +90,7 @@ public class WebsiteDiscoveryProvider(
     }
 
     /// <summary>
-    /// Gets the sitemap pages with additional details like title and description.
+    /// Gets the sitemap pages of the current channel with additional details like title and description.
     /// </summary>
     /// <returns></returns>
     public async Task<List<SitemapPage>> GetSitemapPagesWithDetails() =>
@@ -93,19 +99,19 @@ public class WebsiteDiscoveryProvider(
             cs.CacheDependency = CacheHelper.GetCacheDependency(BuildCacheDependencyKeys());
 
             return GetSitemapPagesInternal();
-        }, new CacheSettings(60, [nameof(GetSitemapPagesWithDetails)]) { });
+        }, new CacheSettings(60, nameof(GetSitemapPagesWithDetails), website.WebsiteChannelName, options.DefaultLanguage));
 
     /// <summary>
-    /// Gets the sitemap pages for the sitemap.xml.
+    /// Gets the sitemap pages for the sitemap.xml. The nodes are built on every call, because
+    /// the sitemap provider rewrites their URLs to absolute ones using the current request's host.
     /// </summary>
     /// <returns></returns>
-    public async Task<List<SitemapNode>> GetSitemapPages() =>
-        await cache.LoadAsync(cs =>
-        {
-            cs.CacheDependency = CacheHelper.GetCacheDependency(BuildCacheDependencyKeys());
+    public async Task<List<SitemapNode>> GetSitemapPages()
+    {
+        var pages = await GetSitemapPagesWithDetails();
 
-            return GetSitemapNodesInternal();
-        }, new CacheSettings(60, [nameof(GetSitemapPages)]) { });
+        return pages.Select(ToSitemapNode).ToList();
+    }
 
     private static IWebsiteDiscoveryOptions ValidateOptions(IWebsiteDiscoveryOptions options)
     {
@@ -139,24 +145,28 @@ public class WebsiteDiscoveryProvider(
         return options;
     }
 
-    private async Task<List<SitemapNode>> GetSitemapNodesInternal()
-    {
-        var pages = await GetSitemapPagesInternal();
-        var nodes = new List<SitemapNode>();
-
-        foreach (var page in pages)
+    private static SitemapNode ToSitemapNode(SitemapPage page) =>
+        new(page.Url)
         {
-            var node = new SitemapNode(page.SystemFields.WebPageUrlPath)
-            {
-                LastModificationDate = DateTime.Now,
-                ChangeFrequency = ChangeFrequency.Weekly,
-            };
+            // Dates are stored in the server's time, and the sitemap format needs the offset
+            LastModificationDate = page.LastModified is { } lastModified ? DateTime.SpecifyKind(lastModified, DateTimeKind.Local) : null,
+            ChangeFrequency = ParseChangeFrequency(page.ChangeFrequency) ?? ChangeFrequency.Weekly,
+            Priority = ParsePriority(page.Priority),
+        };
 
-            nodes.Add(node);
-        }
+    private static ChangeFrequency? ParseChangeFrequency(string? value) =>
+        Enum.TryParse(value, ignoreCase: true, out ChangeFrequency frequency) ? frequency : null;
 
-        return nodes;
-    }
+    private static decimal? ParsePriority(string? value) =>
+        decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal priority)
+            && priority is >= 0 and <= 1
+            ? priority
+            : null;
+
+    private string GetLlmsTxtTitle() =>
+        options.LlmsTxtTitles.TryGetValue(website.WebsiteChannelName, out string? title) && !string.IsNullOrWhiteSpace(title)
+            ? title
+            : website.WebsiteChannelName;
 
     private async Task<List<SitemapPage>> GetSitemapPagesInternal()
     {
@@ -178,6 +188,18 @@ public class WebsiteDiscoveryProvider(
             string title = string.Empty;
             c.TryGetValue(options.TitleFieldName, out title);
 
+            string priority = string.Empty;
+            if (!string.IsNullOrWhiteSpace(options.SitemapPriorityFieldName))
+            {
+                c.TryGetValue(options.SitemapPriorityFieldName, out priority);
+            }
+
+            string frequency = string.Empty;
+            if (!string.IsNullOrWhiteSpace(options.SitemapFrequencyFieldName))
+            {
+                c.TryGetValue(options.SitemapFrequencyFieldName, out frequency);
+            }
+
             return new SitemapPage(new()
             {
                 WebPageItemID = c.WebPageItemID,
@@ -194,14 +216,53 @@ public class WebsiteDiscoveryProvider(
                 ContentItemID = c.ContentItemID,
                 ContentItemIsSecured = c.ContentItemIsSecured,
                 ContentItemName = c.ContentItemName,
-            }, isInSitemap, title, description);
+            }, isInSitemap, title, description)
+            {
+                LastModified = c.ContentItemCommonDataLastPublishedWhen,
+                Priority = priority,
+                ChangeFrequency = frequency,
+            };
         });
 
-        return pages.Where(p => p.IsInSitemap).ToList();
+        var sitemapPages = pages.Where(p => p.IsInSitemap).ToList();
+
+        // The URL retriever returns the canonical URL: the root for the home page, the selected URL for the others
+        var urls = await urlRetriever.Retrieve(
+            sitemapPages.Select(p => p.SystemFields.WebPageItemGUID).ToList(),
+            website.WebsiteChannelName,
+            options.DefaultLanguage,
+            false);
+
+        var displayNames = await GetDisplayNames(sitemapPages);
+
+        return sitemapPages
+            .Select(p =>
+            {
+                p.DisplayName = displayNames.TryGetValue((p.SystemFields.ContentItemID, p.SystemFields.ContentItemCommonDataContentLanguageID), out string? displayName)
+                    ? displayName
+                    : p.SystemFields.WebPageItemName;
+                p.Url = urls.TryGetValue(p.SystemFields.WebPageItemGUID, out var url)
+                    ? url.RelativePathTrimmed().ToLowerInvariant()
+                    : $"/{p.SystemFields.WebPageUrlPath}";
+                return p;
+            })
+            .ToList();
+    }
+
+    private async Task<Dictionary<(int ContentItemId, int LanguageId), string>> GetDisplayNames(List<SitemapPage> pages)
+    {
+        var metadata = await languageMetadataProvider.Get()
+            .WhereIn(nameof(ContentItemLanguageMetadataInfo.ContentItemLanguageMetadataContentItemID), pages.Select(p => p.SystemFields.ContentItemID).ToList())
+            .WhereIn(nameof(ContentItemLanguageMetadataInfo.ContentItemLanguageMetadataContentLanguageID), pages.Select(p => p.SystemFields.ContentItemCommonDataContentLanguageID).Distinct().ToList())
+            .GetEnumerableTypedResultAsync();
+
+        return metadata.ToDictionary(
+            m => (m.ContentItemLanguageMetadataContentItemID, m.ContentItemLanguageMetadataContentLanguageID),
+            m => m.ContentItemLanguageMetadataDisplayName);
     }
 
     private string[] BuildCacheDependencyKeys() =>
         options.ContentTypeDependencies
-            .Select(t => $"webpageitem|bychannel|{website.WebsiteChannelName}|bycontenttype|{nameof(WebsiteDiscoveryProvider)}|{t}")
+            .Select(t => $"webpageitem|bychannel|{website.WebsiteChannelName}|bycontenttype|{t}")
             .ToArray();
 }
